@@ -63,11 +63,10 @@ y = poissonGammaRVS(lambda_,alpha,beta)
 
 
 # In[] パラメタ推定を実行
+from TweedieGLM import DoubleGLM
 model = DoubleGLM(intercept=False, isFreq=False)
 model.setData(X=x,Z=z,Y=y)
-model.updataBeta()
-
-
+model.fit()
 
 
 
