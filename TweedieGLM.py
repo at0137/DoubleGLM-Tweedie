@@ -14,9 +14,8 @@ class DoubleGLM:
     EPSILON = 1e-7
     Converge = 1e-3
 
-    def __init__(self, intercept=False, isFreq=False):
+    def __init__(self, intercept=False):
 
-        self.isFreq = isFreq # whether or not Frequency is available
         self.intercept = intercept # whether or not intercept is considered
 
         self.X = np.array([]) # n x dimBeta feature matrix for mu
@@ -28,11 +27,11 @@ class DoubleGLM:
         self.beta = np.array([])  # regression coefs for mu
         self.gamma = np.array([]) # regression coefs for phi
         self.mu = np.array([])  # current prediction of mu
-        self.phi = np.array([]) # current prediction of phi
+        self.logPhi = np.array([]) # current prediction of logPhi
         self.p = 1.5 # scale parameter of mean-var relation
         self.n = 0 # of samples
         self.dimBeta  = 0 # of features for mu
-        self.dimGamma = 0 # of features for phi
+        self.dimGamma = 0 # of features for logPhi
 
 
     def setData(self, X, Z, Y, w=None):
@@ -60,7 +59,7 @@ class DoubleGLM:
         self.Y = Y.reshape(Y.shape[0], 1) + DoubleGLM.EPSILON #target( +e) => to avoid nan
         self.d = np.ones(self.Y.shape)
         self.mu  = np.copy(self.Y)       # current prediction of mu
-        self.phi = np.ones(self.Y.shape) # current prediction of phi
+        self.logPhi = np.zeros(self.Y.shape) # current prediction of loglogPhi
 
         # initialize coefs (by normal dist.)
         self.beta = normal(size=[self.dimBeta, 1])
@@ -107,11 +106,11 @@ class DoubleGLM:
         # update gamma : Adjusted Fisher Scoring Iteration
         result = np.matmul(np.matmul(self.Z.T, Wd), self.Z)
         result = np.linalg.inv(result)
-        result = np.matmul( np.matmul(result, self.Z.T), Wd)
+        result = np.matmul( np.matmul(result, self.Z.T), Wd )
         self.gamma = np.matmul(result, zd)
 
-        # update current phi
-        self.phi = np.exp(np.matmul(self.Z, self.gamma))
+        # update current logPhi
+        self.logPhi = np.matmul(self.Z, self.gamma)
 
         return np.abs(priorGamma - self.gamma)
 
@@ -151,10 +150,12 @@ class DoubleGLM:
             if not converge_Beta:
                 diffBeta = self.updateBeta().max()
                 print("beta updated...")
+
             if not converge_Gamma:
                 diffGamma = self.updateGamma().max()
                 print("gamma updated...")
-            print("current update margin: beta=", diffBeta, " gamma=" ,diffGamma
+            print("current update margin: beta=", diffBeta, " gamma=" ,diffGamma)
+
             if converge_Beta and converge_Gamma:
                 print("Fisher Scoring Updation completed @ iteration {}".format(itr))
                 break
@@ -168,14 +169,14 @@ class DoubleGLM:
 
     # --- [Utils] ---
     def __genW(self):
-        # for updateBeta iteration, generate matrix "W"
-        W_elements = self.mu**2 * self.w / (self.phi * self.phi * self.mu**self.p + DoubleGLM.EPSILON)
+        # generate matrix "W" for updateBeta iteration
+        W_elements = self.mu**2 * self.w / (np.exp(2*self.logPhi) * self.mu**self.p + DoubleGLM.EPSILON)
         W_elements = W_elements.reshape(W_elements.shape[0], )
         W = np.diag(W_elements)
         return W
 
     def __genHatMatrix(self):
-        # for gen_Wd_zd, generate "hat matrix"
+        # generate "hat matrix" for gen_Wd_zd
         W = self.__genW()
         hatMatrix = np.matmul(np.matmul(self.X.T, W), self.X)
         hatMatrix = np.matmul(self.X, np.linalg.inv(hatMatrix))
@@ -185,23 +186,29 @@ class DoubleGLM:
         return hatMatrix
 
     def __gen_Wd_zd(self):
-        # for updateGamma iteration, generate "Wd" and "zd"
+        # generate "Wd" and "zd" for Gamma update iteration
+        Wd = np.diag(0.5 * np.ones(self.n)) #round項とVd項が打ち消し合ってるんだが?
+        zd = (self.d/np.exp(self.logPhi) - 1) + self.logPhi
+        return [Wd, zd]
+
+    def __gen_Wd_zd_star(self):
+        # generate "Wd*" and "zd*" for updateGamma iteration
         hatMatrix = self.__genHatMatrix()
         h = np.diag(hatMatrix).reshape(self.n, 1)
         # generate Wd
-        Wd_elements = self.phi**2 * (1-h) / (2*self.phi**2) #round項とVd項が打ち消し合ってる.そんな簡単な形になる?
+        Wd_elements = (1-h)/2 # #round項とVd項が打ち消し合ってるんだが?
         Wd_elements = Wd_elements.reshape(self.n) #to conv diag, shape[1] must be blank
         Wd = np.diag(Wd_elements)
         # generate zd
-        zd = (1/self.phi) * (self.d/(1-h) - self.phi) + np.log(self.phi)
+        zd = (self.d/((1-h) * np.exp(self.logPhi) + DoubleGLM.EPSILON) - 1) + self.logPhi
         zd = zd.reshape(self.n, 1)
-        return (Wd, zd)
+        return [Wd, zd]
 
     # @classmethod ... pending
     def __convertParamset(self, p):
         # (μ,φ,p) -> (λ,α,β)
-        lambda_ = self.mu**(2-p) / (self.phi * (2-p))
-        tau = self.phi * (p - 1) * self.mu**(p-1)
+        lambda_ = self.mu**(2-p) / (np.exp(self.logPhi) * (2-p))
+        tau = np.exp(self.logPhi) * (p - 1) * self.mu**(p-1)
         alpha = (2 - p) / (p - 1)
         return (lambda_, tau, alpha)
 

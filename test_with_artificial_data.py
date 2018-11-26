@@ -49,6 +49,8 @@ z = np.random.normal(size=[Nentry, num_feature])
 # coefs
 beta_true  = np.random.uniform(-0.5,0.5, size=num_feature)
 gamma_true = np.random.uniform(-0.5,0.5, size=num_feature)
+beta_true
+gamma_true
 # customer i's parameters
 mu  = np.exp(np.matmul(x, beta_true))
 phi = np.exp(np.matmul(z, gamma_true))
@@ -59,15 +61,40 @@ mu.min(),  mu.max()
 # generate y from Poisson-Gamma(λ,α,β)
 lambda_, alpha, beta = convertParamset2(mu, phi, p)
 y = poissonGammaRVS(lambda_,alpha,beta)
-
+np.percentile(y, q=[0,50,100])
 
 
 # In[] パラメタ推定を実行
 from TweedieGLM import DoubleGLM
-model = DoubleGLM(intercept=False, isFreq=False)
+model = DoubleGLM(intercept=False)
 model.setData(X=x,Z=z,Y=y)
-model.fit()
+# model.fit()
 
+
+####
+model.updateBeta()
+model.beta
+model.updateGamma()
+model.gamma
+
+
+# h = model._DoubleGLM__genHatMatrix()
+
+Wd,zd = model._DoubleGLM__gen_Wd_zd()
+np.percentile(Wd, q=[0,100])
+np.percentile(zd, q=[0,100])
+
+np.percentile(model.d, q=[0,100])
+np.percentile(model.mu, q=[0,100])
+
+plt.hist(model.d)
+model.d.max()
+model.d.min()
+model.mu.max()
+model.mu.min()
+
+model.logPhi.max()
+model.logPhi.min()
 
 
 #
